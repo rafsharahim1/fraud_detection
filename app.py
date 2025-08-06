@@ -25,7 +25,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better styling
+# Custom CSS for better styling + Keep Alive functionality
 st.markdown("""
 <style>
 .metric-card {
@@ -47,6 +47,63 @@ st.markdown("""
     border-left-color: #2ed573;
 }
 </style>
+
+<script>
+// Keep the app alive by preventing sleep
+function keepAlive() {
+    // Send a small ping every 5 minutes to keep session active
+    fetch(window.location.href, {
+        method: 'HEAD',
+        cache: 'no-cache'
+    }).catch(console.log);
+}
+
+// Start keep alive functionality
+setInterval(keepAlive, 300000); // 5 minutes
+
+// Prevent page from sleeping on mobile/tablet
+function preventSleep() {
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible') {
+            keepAlive();
+        }
+    });
+    
+    // Keep screen awake if supported
+    if ('wakeLock' in navigator) {
+        let wakeLock = null;
+        async function requestWakeLock() {
+            try {
+                wakeLock = await navigator.wakeLock.request('screen');
+            } catch (err) {
+                console.log('Wake Lock not supported');
+            }
+        }
+        requestWakeLock();
+    }
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', preventSleep);
+
+// Auto-refresh functionality for long-running sessions
+let sessionTime = 0;
+setInterval(function() {
+    sessionTime += 60000; // 1 minute
+    // Auto-refresh after 4 hours of inactivity
+    if (sessionTime >= 14400000) {
+        console.log('Refreshing to maintain session');
+        location.reload();
+    }
+}, 60000);
+
+// Reset session timer on user activity
+document.addEventListener('click', () => sessionTime = 0);
+document.addEventListener('keypress', () => sessionTime = 0);
+document.addEventListener('scroll', () => sessionTime = 0);
+
+console.log('🚀 Fraud Detection Dashboard - Keep Alive Enabled');
+</script>
 """, unsafe_allow_html=True)
 
 class FraudDetectorDashboard:
@@ -350,11 +407,24 @@ def load_fraud_detector_with_excel(uploaded_file):
     return None, None
 
 def main():
-    st.title("🚨 Fraud Detection Dashboard")
+    st.title("🚀 Fraud Detection Dashboard")
     st.markdown("Upload your transaction data to detect potential fraudulent patterns")
+    
+    # Add keep-alive status indicator
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        st.markdown("**Status:** 🟢 Active & Protected from Sleep")
+    with col2:
+        if st.button("🔄 Refresh Session"):
+            st.rerun()
+    with col3:
+        st.markdown(f"⏰ {datetime.now().strftime('%H:%M:%S')}")
+    
+    st.divider()
     
     # Sidebar for file upload
     st.sidebar.header("📁 Data Upload")
+    st.sidebar.success("🛡️ App Sleep Protection: ON")
     uploaded_file = st.sidebar.file_uploader(
         "Choose a CSV file", 
         type=['csv'],
@@ -472,10 +542,10 @@ def display_dashboard(detector):
         risk_counts = detector.pan_grouped_df['Risk_Level'].value_counts()
         
         fig_risk = px.bar(
-            x=risk_counts.index,
-            y=risk_counts.values,
+            x=risk_counts.index.tolist(),
+            y=risk_counts.values.tolist(),
             title="🚨 PANs by Risk Level",
-            color=risk_counts.index,
+            color=risk_counts.index.tolist(),
             color_discrete_map={
                 'CRITICAL': '#ff4757',
                 'HIGH': '#ffa502',
@@ -500,8 +570,8 @@ def display_dashboard(detector):
         score_counts = detector.pan_grouped_df['Score_Range'].value_counts().sort_index()
         
         fig_score = px.bar(
-            x=score_counts.index,
-            y=score_counts.values,
+            x=score_counts.index.tolist(),
+            y=score_counts.values.tolist(),
             title="📊 PANs by Fraud Score Range",
             color_discrete_sequence=['#3742fa']
         )
@@ -519,8 +589,8 @@ def display_dashboard(detector):
         merchant_groups = detector.pan_grouped_df['Unique_Merchants'].value_counts().sort_index()
         
         fig_merchants = px.bar(
-            x=[f"{idx} Merchants" for idx in merchant_groups.index],
-            y=merchant_groups.values,
+            x=[f"{idx} Merchants" for idx in merchant_groups.index.tolist()],
+            y=merchant_groups.values.tolist(),
             title="🏪 PANs by Number of Merchants Used",
             color_discrete_sequence=['#2ed573']
         )
@@ -538,10 +608,10 @@ def display_dashboard(detector):
         email_counts = detector.pan_grouped_df['Email_Category'].value_counts()
         
         fig_email = px.bar(
-            x=email_counts.index,
-            y=email_counts.values,
+            x=email_counts.index.tolist(),
+            y=email_counts.values.tolist(),
             title="📧 PANs by Suspicious Email Level",
-            color=email_counts.index,
+            color=email_counts.index.tolist(),
             color_discrete_map={
                 'High (>50%)': '#ff4757',
                 'Medium (20-50%)': '#ffa502',
@@ -568,8 +638,8 @@ def display_dashboard(detector):
         volume_counts = detector.pan_grouped_df['Volume_Category'].value_counts().sort_index()
         
         fig_volume = px.bar(
-            x=[f"{idx} Transactions" for idx in volume_counts.index],
-            y=volume_counts.values,
+            x=[f"{idx} Transactions" for idx in volume_counts.index.tolist()],
+            y=volume_counts.values.tolist(),
             title="💳 PANs by Transaction Volume",
             color_discrete_sequence=['#5f27cd']
         )
@@ -613,11 +683,16 @@ def display_dashboard(detector):
             hour_counts = detector.df['Hour'].value_counts().sort_index()
             
             fig_hours = px.bar(
-                x=hour_counts.index,
-                y=hour_counts.values,
+                pd.DataFrame({
+                    'Hour': hour_counts.index.tolist(),
+                    'Transactions': hour_counts.values.tolist()
+                }),
+                x='Hour',
+                y='Transactions',
                 title="⏰ Transactions by Hour of Day",
                 color_discrete_sequence=['#00d2d3']
             )
+
             fig_hours.update_layout(
                 xaxis_title="Hour of Day (0-23)",
                 yaxis_title="Number of Transactions"
