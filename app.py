@@ -128,12 +128,62 @@ class FraudDetectorDashboard:
             st.error(f"Error loading data: {str(e)}")
             return False
     
+    
     def prepare_data(self):
         """Clean and prepare the data for analysis"""
-        # Convert DateTime to proper datetime format
-        self.df['DateTime'] = pd.to_datetime(self.df['DateTime'], format='%d/%m/%Y %H:%M', errors='coerce')
+        # Debug: Check original DateTime values first
+        print(f"Original DateTime sample values:")
+        print(f"First 3 raw DateTime values: {self.df['DateTime'].head(3).tolist()}")
+        print(f"DateTime column type: {type(self.df['DateTime'].iloc[0]) if len(self.df) > 0 else 'Empty'}")
         
-        # Extract hour for time-based analysis
+        # Clean the DateTime column first - remove any extra spaces or characters
+        self.df['DateTime'] = self.df['DateTime'].astype(str).str.strip()
+        
+        # Try multiple datetime parsing approaches based on detected format
+        datetime_converted = False
+        
+        # Approach 1: Direct format matching YYYY-MM-DD HH:MM:SS (ISO format)
+        try:
+            self.df['DateTime'] = pd.to_datetime(self.df['DateTime'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
+            successful_conversions = self.df['DateTime'].notna().sum()
+            print(f"Approach 1 (YYYY-MM-DD HH:MM:SS): {successful_conversions} successful conversions")
+            if successful_conversions > 0:
+                datetime_converted = True
+        except Exception as e:
+            print(f"Approach 1 failed: {e}")
+        
+        # Approach 2: Try ISO format parsing if approach 1 didn't work
+        if not datetime_converted or self.df['DateTime'].isna().sum() > len(self.df) * 0.1:
+            try:
+                self.df['DateTime'] = pd.to_datetime(self.df['DateTime'], errors='coerce')
+                successful_conversions = self.df['DateTime'].notna().sum()
+                print(f"Approach 2 (ISO auto-detect): {successful_conversions} successful conversions")
+                if successful_conversions > 0:
+                    datetime_converted = True
+            except Exception as e:
+                print(f"Approach 2 failed: {e}")
+        
+        # Approach 3: Try automatic inference as last resort
+        if not datetime_converted or self.df['DateTime'].isna().sum() > len(self.df) * 0.1:
+            try:
+                self.df['DateTime'] = pd.to_datetime(self.df['DateTime'], infer_datetime_format=True, errors='coerce')
+                successful_conversions = self.df['DateTime'].notna().sum()
+                print(f"Approach 3 (infer_datetime_format): {successful_conversions} successful conversions")
+            except Exception as e:
+                print(f"Approach 3 failed: {e}")
+        
+        # Final check and fallback
+        null_count = self.df['DateTime'].isnull().sum()
+        total_count = len(self.df)
+        print(f"Final result: {total_count - null_count}/{total_count} dates successfully parsed")
+        
+        if null_count == total_count:
+            print("WARNING: All datetime parsing failed. Using current timestamp as fallback.")
+            self.df['DateTime'] = pd.Timestamp.now()
+        elif null_count > 0:
+            print(f"WARNING: {null_count} dates failed to parse and will be treated as NaT")
+        
+        # Extract hour and date for time-based analysis
         self.df['Hour'] = self.df['DateTime'].dt.hour
         self.df['Date'] = self.df['DateTime'].dt.date
         
@@ -144,6 +194,15 @@ class FraudDetectorDashboard:
         self.df['Amount'] = pd.to_numeric(self.df['Amount'], errors='coerce')
         if 'PURCHASE_AMOUNT' in self.df.columns:
             self.df['PURCHASE_AMOUNT'] = pd.to_numeric(self.df['PURCHASE_AMOUNT'], errors='coerce')
+        
+        # Show final sample of converted datetimes
+        print(f"Sample of successfully converted DateTime values:")
+        valid_datetimes = self.df[self.df['DateTime'].notna()]['DateTime'].head(3)
+        print(f"First 3 valid DateTime values: {valid_datetimes.tolist()}")
+        
+        # Show extracted hour and date samples
+        print(f"Sample extracted hours: {self.df['Hour'].head(3).tolist()}")
+        print(f"Sample extracted dates: {self.df['Date'].head(3).tolist()}")
     
     def extract_email_domain(self, email):
         """Extract domain from email address"""
