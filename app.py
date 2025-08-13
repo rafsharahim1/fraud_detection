@@ -128,7 +128,6 @@ class FraudDetectorDashboard:
             st.error(f"Error loading data: {str(e)}")
             return False
     
-    
     def prepare_data(self):
         """Clean and prepare the data for analysis"""
         # Debug: Check original DateTime values first
@@ -252,10 +251,12 @@ class FraudDetectorDashboard:
         return False
     
     def calculate_fraud_score(self, unique_merchants, unique_emails, unique_domains, 
-                            total_transactions, time_span_hours, domain_entropy, suspicious_emails):
-        """Calculate composite fraud score"""
+                            total_transactions, time_span_hours, domain_entropy, suspicious_emails,
+                            unique_channels, unique_ecis, unique_issuers):
+        """Calculate enhanced composite fraud score including Channel, ECI, and Issuer diversity"""
         score = 0
         
+        # Original scoring logic
         if unique_merchants > 3 and total_transactions < 20:
             score += 3
         elif unique_merchants > 5:
@@ -278,10 +279,25 @@ class FraudDetectorDashboard:
         elif suspicious_ratio > 0.2:
             score += 2
         
+        # Enhanced scoring with Channel, ECI, and Issuer diversity
+        if unique_channels > 2:
+            score += 2
+        
+        if unique_ecis > 3:
+            score += 2
+        
+        if unique_issuers > 2:
+            score += 1
+        
+        # Additional risk if high diversity across multiple dimensions
+        diversity_score = unique_merchants + unique_channels + unique_ecis + unique_issuers
+        if diversity_score > 10 and total_transactions < 30:
+            score += 2
+        
         return min(score, 10)
     
     def create_pan_grouped_analysis(self):
-        """Create detailed analysis grouped by PAN"""
+        """Create detailed analysis grouped by PAN with enhanced Channel, ECI, and Issuer metrics"""
         pan_groups = []
         
         for pan in self.df['PAN'].unique():
@@ -298,6 +314,11 @@ class FraudDetectorDashboard:
             total_transactions = len(pan_data)
             total_amount = pan_data['Amount'].sum()
             avg_amount = pan_data['Amount'].mean()
+            
+            # Enhanced metrics - Channel, ECI, and Issuer diversity
+            unique_channels = pan_data['Channel'].nunique() if 'Channel' in pan_data.columns else 0
+            unique_ecis = pan_data['ECI Value'].nunique() if 'ECI Value' in pan_data.columns else 0
+            unique_issuers = pan_data['Issuer'].nunique() if 'Issuer' in pan_data.columns else 0
             
             # Time analysis
             first_transaction = pan_data['DateTime'].min()
@@ -321,13 +342,14 @@ class FraudDetectorDashboard:
             domain_entropy = self.calculate_entropy(email_domains)
             suspicious_emails = pan_data['Customer Email'].apply(self.is_suspicious_email).sum()
             
-            # Calculate fraud score
+            # Calculate enhanced fraud score
             fraud_score = self.calculate_fraud_score(
                 unique_merchants, unique_emails, unique_domains, 
-                total_transactions, time_span_hours, domain_entropy, suspicious_emails
+                total_transactions, time_span_hours, domain_entropy, suspicious_emails,
+                unique_channels, unique_ecis, unique_issuers
             )
             
-            # Red flags
+            # Enhanced red flags
             red_flags = []
             if unique_merchants > 5:
                 red_flags.append(f"{unique_merchants}Merchants")
@@ -339,6 +361,12 @@ class FraudDetectorDashboard:
                 red_flags.append(f"RapidTransactions")
             if suspicious_emails / total_transactions > 0.2:
                 red_flags.append("SuspiciousEmails")
+            if unique_channels > 2:
+                red_flags.append(f"{unique_channels}Channels")
+            if unique_ecis > 3:
+                red_flags.append(f"{unique_ecis}ECIs")
+            if unique_issuers > 2:
+                red_flags.append(f"{unique_issuers}Issuers")
             
             # Risk level
             if fraud_score >= 8:
@@ -356,6 +384,11 @@ class FraudDetectorDashboard:
             mobile_list = '; '.join(pan_data['Customer Mobile'].dropna().astype(str).unique())
             transaction_ids_list = '; '.join(pan_data['TransactionID'].dropna().astype(str).unique())
             
+            # Enhanced lists for Channel, ECI, and Issuer
+            channels_list = '; '.join(pan_data['Channel'].dropna().astype(str).unique()) if 'Channel' in pan_data.columns else 'N/A'
+            ecis_list = '; '.join(pan_data['ECI Value'].dropna().astype(str).unique()) if 'ECI Value' in pan_data.columns else 'N/A'
+            issuers_list = '; '.join(pan_data['Issuer'].dropna().astype(str).unique()) if 'Issuer' in pan_data.columns else 'N/A'
+            
             pan_groups.append({
                 'PAN': pan,
                 'Risk_Level': risk_level,
@@ -367,6 +400,9 @@ class FraudDetectorDashboard:
                 'Unique_Cities': unique_cities,
                 'Unique_MCCs': unique_mccs,
                 'Unique_Banks': unique_banks,
+                'Unique_Channels': unique_channels,
+                'Unique_ECIs': unique_ecis,
+                'Unique_Issuers': unique_issuers,
                 'Total_Amount': total_amount,
                 'Average_Amount': avg_amount,
                 'Successful_Transactions': successful_txns,
@@ -382,6 +418,9 @@ class FraudDetectorDashboard:
                 'All_Merchants_Used': merchants_list,
                 'All_Emails_Used': emails_list,
                 'All_Mobile_Numbers_Used': mobile_list,
+                'All_Channels_Used': channels_list,
+                'All_ECIs_Used': ecis_list,
+                'All_Issuers_Used': issuers_list,
                 'All_Transaction_IDs': transaction_ids_list,
                 'Red_Flags': '; '.join(red_flags) if red_flags else 'None'
             })
@@ -390,14 +429,15 @@ class FraudDetectorDashboard:
         return self.pan_grouped_df
     
     def ml_anomaly_detection(self):
-        """Use ML algorithms to detect anomalous patterns"""
+        """Use ML algorithms to detect anomalous patterns with enhanced features"""
         if not hasattr(self, 'pan_grouped_df') or self.pan_grouped_df is None:
             self.create_pan_grouped_analysis()
         
-        # Prepare features for ML
+        # Enhanced features for ML including Channel, ECI, and Issuer diversity
         features = ['Unique_Merchants', 'Unique_Emails', 'Unique_Cities', 
                    'Total_Transactions', 'Time_Span_Hours', 'Domain_Entropy', 
-                   'Suspicious_Emails', 'Total_Amount']
+                   'Suspicious_Emails', 'Total_Amount', 'Unique_Channels', 
+                   'Unique_ECIs', 'Unique_Issuers']
         
         # Fill NaN values and scale features
         X = self.pan_grouped_df[features].fillna(0)
@@ -414,7 +454,7 @@ class FraudDetectorDashboard:
         return self.pan_grouped_df
     
     def export_to_excel(self):
-        """Export analysis to Excel and return as bytes"""
+        """Export enhanced analysis to Excel and return as bytes"""
         # Ensure we have analysis
         if not hasattr(self, 'pan_grouped_df') or self.pan_grouped_df is None:
             self.create_pan_grouped_analysis()
@@ -438,17 +478,33 @@ class FraudDetectorDashboard:
             multi_merchant = pan_summary[pan_summary['Unique_Merchants'] >= 3]
             multi_merchant.to_excel(writer, sheet_name='Multi_Merchant_PANs', index=False)
             
-            # Statistics
+            # Enhanced analysis sheets
+            multi_channel = pan_summary[pan_summary['Unique_Channels'] >= 2]
+            multi_channel.to_excel(writer, sheet_name='Multi_Channel_PANs', index=False)
+            
+            multi_eci = pan_summary[pan_summary['Unique_ECIs'] >= 3]
+            multi_eci.to_excel(writer, sheet_name='Multi_ECI_PANs', index=False)
+            
+            multi_issuer = pan_summary[pan_summary['Unique_Issuers'] >= 2]
+            multi_issuer.to_excel(writer, sheet_name='Multi_Issuer_PANs', index=False)
+            
+            # Enhanced statistics
             stats_data = [
                 ['Total PANs Analyzed', len(pan_summary)],
                 ['High Risk PANs', len(high_risk)],
                 ['ML Anomalies', len(ml_anomalies)],
                 ['Multi-Merchant PANs', len(multi_merchant)],
+                ['Multi-Channel PANs', len(multi_channel)],
+                ['Multi-ECI PANs', len(multi_eci)],
+                ['Multi-Issuer PANs', len(multi_issuer)],
                 ['Average Fraud Score', pan_summary['Fraud_Score'].mean()],
-                ['Total Transaction Amount', pan_summary['Total_Amount'].sum()]
+                ['Total Transaction Amount', pan_summary['Total_Amount'].sum()],
+                ['Average Unique Channels per PAN', pan_summary['Unique_Channels'].mean()],
+                ['Average Unique ECIs per PAN', pan_summary['Unique_ECIs'].mean()],
+                ['Average Unique Issuers per PAN', pan_summary['Unique_Issuers'].mean()]
             ]
             stats_df = pd.DataFrame(stats_data, columns=['Metric', 'Value'])
-            stats_df.to_excel(writer, sheet_name='Statistics', index=False)
+            stats_df.to_excel(writer, sheet_name='Enhanced_Statistics', index=False)
         
         output.seek(0)
         return output
@@ -466,8 +522,8 @@ def load_fraud_detector_with_excel(uploaded_file):
     return None, None
 
 def main():
-    st.title("🚀 Fraud Detection Dashboard")
-    st.markdown("Upload your transaction data to detect potential fraudulent patterns")
+    st.title("Fraud Detection Dashboard")
+    st.markdown("Upload your transaction data to detect potential fraudulent patterns with Channel, ECI, and Issuer analysis")
     
     # Add keep-alive status indicator
     col1, col2, col3 = st.columns([2, 1, 1])
@@ -497,15 +553,15 @@ def main():
         
         if detector is not None and excel_buffer is not None:
             # Success message with download
-            st.success("✅ Analysis completed! Excel report ready for download.")
+            st.success("✅ Analysis completed! Enhanced Excel report ready for download.")
             
             # Immediate download button at the top
             col1, col2, col3 = st.columns([1, 2, 1])
             with col2:
                 st.download_button(
-                    label="📊 Download Excel Report",
+                    label="📊 Download Enhanced Excel Report",
                     data=excel_buffer,
-                    file_name=f"fraud_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    file_name=f"enhanced_fraud_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     type="primary",
                     use_container_width=True
@@ -521,11 +577,11 @@ def main():
         st.info("👆 Please upload a CSV file to begin fraud analysis")
         
         # Show sample data format
-        st.subheader("📋 Expected Data Format")
+        st.subheader("📋 Expected Data Format (Enhanced)")
         sample_data = {
             'PAN': ['1234****5678', '9876****4321'],
             'TransactionID': ['TXN001', 'TXN002'],
-            'DateTime': ['01/01/2024 10:30', '01/01/2024 11:45'],
+            'DateTime': ['2024-01-01 10:30:00', '2024-01-01 11:45:00'],
             'Amount': [100.50, 250.75],
             'MerchantName': ['Shop A', 'Store B'],
             'Customer Email': ['user@email.com', 'customer@domain.com'],
@@ -533,23 +589,29 @@ def main():
             'Status': ['Success', 'Success'],
             'MerchantCity': ['City A', 'City B'],
             'MCC': ['5411', '5812'],
-            'BankName': ['Bank A', 'Bank B']
+            'BankName': ['Bank A', 'Bank B'],
+            'Channel': ['Online', 'Mobile'],
+            'ECI Value': ['05', '07'],
+            'Issuer': ['Issuer A', 'Issuer B']
         }
         st.dataframe(pd.DataFrame(sample_data))
 
 def display_dashboard(detector):
-    """Display the main dashboard with KPIs and visualizations"""
+    """Display the enhanced dashboard with KPIs and visualizations including Channel, ECI, and Issuer analysis"""
     
-    # Key Metrics Row
-    st.header("📊 Key Performance Indicators")
+    # Enhanced Key Metrics Row
+    st.header("📊 Enhanced Key Performance Indicators")
     
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     total_pans = len(detector.pan_grouped_df)
     high_risk_pans = len(detector.pan_grouped_df[detector.pan_grouped_df['Fraud_Score'] >= 6])
     ml_anomalies = len(detector.pan_grouped_df[detector.pan_grouped_df['ML_Anomaly'] == True])
     avg_fraud_score = detector.pan_grouped_df['Fraud_Score'].mean()
     total_amount = detector.pan_grouped_df['Total_Amount'].sum()
+    
+    # Enhanced metrics
+    multi_channel_pans = len(detector.pan_grouped_df[detector.pan_grouped_df['Unique_Channels'] >= 2])
     
     with col1:
         st.metric(
@@ -578,22 +640,31 @@ def display_dashboard(detector):
     
     with col4:
         st.metric(
+            label="Multi-Channel",
+            value=f"{multi_channel_pans:,}",
+            delta=f"{(multi_channel_pans/total_pans*100):.1f}%",
+            delta_color="inverse",
+            help="PANs using multiple channels"
+        )
+    
+    with col5:
+        st.metric(
             label="Avg Fraud Score",
             value=f"{avg_fraud_score:.2f}",
             help="Average fraud score across all PANs (0-10 scale)"
         )
     
-    with col5:
+    with col6:
         st.metric(
             label="Total Amount",
             value=f"${total_amount:,.2f}",
             help="Total transaction amount across all PANs"
         )
     
-    # Charts Row
-    st.header("📈 Fraud Analysis Charts")
+    # Enhanced Charts Row
+    st.header("📈 Enhanced Fraud Analysis Charts")
     
-    # Row 1: Simple Risk Overview
+    # Row 1: Risk Overview + Channel Analysis
     col1, col2 = st.columns(2)
     
     with col1:
